@@ -1,0 +1,12 @@
+time: 1.0
+time_limit: 4.0
+tests:
+  - in: |
+      9
+    out: |
+      34
+  - in: |
+      35
+    out: |
+      9227465
+      
