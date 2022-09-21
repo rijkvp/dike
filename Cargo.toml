@@ -14,3 +14,9 @@ owo-colors = "3.5"
 similar = "2.2"
 log = "0.4"
 env_logger = "0.9"
+
+[profile.release]
+lto = true
+strip = true
+codegen-units = 1
+opt-level = 3
