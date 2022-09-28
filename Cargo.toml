@@ -1,19 +1,20 @@
 [package]
 name = "dike"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["Rijk van Putten <rijk@rijkvp.nl>"]
 description = "Parralel code judger"
 edition = "2021"
 
 [dependencies]
-clap = { version = "3.2", features = [ "derive" ] }
-serde = { version = "1.0", features = [ "derive" ] }
-serde_yaml = "0.9"
+clap = { version = "3.2", features = ["derive"] }
 thiserror = "1.0"
 owo-colors = "3.5"
 similar = "2.2"
 log = "0.4"
 env_logger = "0.9"
+rand = "0.8"
+crossbeam = "0.8"
+signal-hook = "0.3"
 
 [profile.release]
 lto = true
