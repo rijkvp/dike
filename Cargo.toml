@@ -2,14 +2,14 @@
 name = "dike"
 version = "0.2.0"
 authors = ["Rijk van Putten <rijk@rijkvp.nl>"]
-description = "Parralel code judger"
+description = "Multithreaded code tester"
 edition = "2021"
+license = "GPL-3.0"
 
 [dependencies]
-clap = { version = "3.2", features = ["derive"] }
+clap = { version = "4.0", features = ["derive"] }
 thiserror = "1.0"
 owo-colors = "3.5"
-similar = "2.2"
 log = "0.4"
 env_logger = "0.9"
 rand = "0.8"

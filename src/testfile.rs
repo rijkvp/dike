@@ -1,10 +1,20 @@
 use std::str::FromStr;
 
-use crate::error::Error;
+use crate::{error::Error, result::ProcessResult};
 
 #[derive(Debug, Clone)]
 pub struct TestFile {
     pub tests: Vec<TestCase>,
+}
+
+impl TestFile {
+    pub fn from_results(results: &Vec<ProcessResult>) -> TestFile {
+        let mut tests = Vec::new();
+        for (n, result) in results.into_iter().enumerate() {
+            tests.push(TestCase::new(format!("Test #{}", n), result.stdin.clone(), Some(result.stdout.clone())));
+        }
+        Self { tests }
+    }
 }
 
 impl FromStr for TestFile {
@@ -19,7 +29,7 @@ impl FromStr for TestFile {
             }
             let mut name = String::new();
             let mut input = String::new();
-            let mut output = String::new();
+            let mut string = String::new();
             let mut field = -1;
             for (n, line) in fragment.lines().enumerate() {
                 if n == 0 {
@@ -37,16 +47,16 @@ impl FromStr for TestFile {
                     if &line[1..2] == ">" {
                         field = 2;
                     } else {
-                        output.push_str(&line[1..].trim_start());
-                        output.push('\n');
+                        string.push_str(&line[1..].trim_start());
+                        string.push('\n');
                         field = 0;
                     }
                 } else if field == 1 {
                     input.push_str(line);
                     input.push('\n');
                 } else if field == 2 {
-                    output.push_str(line);
-                    output.push('\n');
+                    string.push_str(line);
+                    string.push('\n');
                 }
             }
             let input = {
@@ -56,17 +66,45 @@ impl FromStr for TestFile {
                     None
                 }
             };
-            let output = {
-                if !output.is_empty() {
-                    Some(output)
+            let string = {
+                if !string.is_empty() {
+                    Some(string)
                 } else {
                     None
                 }
             };
-            let test = TestCase::new(name, input, output);
+            let test = TestCase::new(name, input, string);
             tests.push(test);
         }
         Ok(Self { tests })
+    }
+}
+
+impl ToString for TestFile {
+    fn to_string(&self) -> String {
+        let mut string = String::new();
+        for test in &self.tests {
+            string.push_str("| ");
+            string.push_str(&test.name);
+            string.push('\n');
+            if let Some(input) = &test.input {
+                if input.lines().count() > 1 {
+                    string.push_str("<< ");
+                } else {
+                    string.push_str("< ");
+                }
+                string.push_str(&input);
+            }
+            if let Some(output) = &test.output {
+                if output.lines().count() > 1 {
+                    string.push_str(">> ");
+                } else {
+                    string.push_str("> ");
+                }
+                string.push_str(&output);
+            }
+        }
+        string
     }
 }
 

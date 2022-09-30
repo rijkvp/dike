@@ -23,7 +23,7 @@ impl ProcessResult {
     }
 }
 
-pub fn summarize_results(results: Vec<ProcessResult>) {
+pub fn summarize_results(results: &Vec<ProcessResult>) {
     let mut errors = results.clone();
     errors.retain(|r| r.status != Some(0));
     println!(

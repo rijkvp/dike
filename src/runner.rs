@@ -79,7 +79,6 @@ pub fn run<T: Controller + Send + Sync + Clone + 'static>(
             }
         }
         if shutdown_signal.load(Ordering::Relaxed) {
-            println!("\nShutdown signal received..");
             break;
         }
         thread::sleep(Duration::from_millis(50));

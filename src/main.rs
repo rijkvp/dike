@@ -9,31 +9,47 @@ use clap::{Parser, Subcommand};
 use error::Error;
 use fuzzer::Fuzzer;
 use log::warn;
+use testfile::TestFile;
 use std::{fs, path::PathBuf, process::Command, time::Duration};
 use tester::Tester;
 
 #[derive(Parser)]
-#[clap(author, version, about, long_about = None)]
+#[clap(author, version, about)]
 struct Args {
     #[clap(subcommand)]
     action: Action,
+    /// Stops running after specified amount of seconds
     #[clap(short = 'l')]
     time_limit: Option<f64>,
+    /// Sets a custom amount of threads
     #[clap(short = 't')]
-    threads: Option<u64>,
+    thread_count: Option<u64>,
+    /// Outputs results to a testfile
+    #[clap(short = 'o', value_name = "FILE")]
+    output: Option<PathBuf>,
+}
+
+#[test]
+fn verify_cli() {
+    use clap::CommandFactory;
+    Args::command().debug_assert()
 }
 
 #[derive(Subcommand)]
 enum Action {
+    /// Tests a program with preset testcases
     Test {
+        /// Command that runs the program to test
         command: String,
+        /// File that specifies the tests
         test_file: PathBuf,
     },
+    /// Tests a program with randomly generated testcases
     Fuzz {
+        /// Command that runs the program to test
         command: String,
+        /// Input template to specify the input format
         input: String,
-        #[clap(short = 'o')]
-        output: Option<PathBuf>,
     },
 }
 
@@ -42,7 +58,7 @@ fn main() -> Result<(), Error> {
 
     let args = Args::parse();
 
-    let thread_count = args.threads.unwrap_or(processor_count());
+    let thread_count = args.thread_count.unwrap_or(processor_count());
     let time_limit = args.time_limit.map(Duration::from_secs_f64);
 
     let results = match args.action {
@@ -58,13 +74,18 @@ fn main() -> Result<(), Error> {
         Action::Fuzz {
             command,
             input,
-            output: _,
         } => {
             let fuzzer = Fuzzer::parse(&input, command)?;
             runner::run(fuzzer, thread_count, time_limit)
         }
     };
-    result::summarize_results(results);
+
+    if let Some(output) = args.output {
+        let testfile = TestFile::from_results(&results);
+        fs::write(output, testfile.to_string())?;
+    }
+
+    result::summarize_results(&results);
 
     Ok(())
 }
