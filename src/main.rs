@@ -1,39 +1,39 @@
 mod error;
-mod fuzz;
-mod process;
-mod test;
+mod fuzzer;
+mod result;
+mod runner;
+mod tester;
 mod testfile;
 
 use clap::{Parser, Subcommand};
 use error::Error;
-use fuzz::{FuzzConfig, FuzzInput};
+use fuzzer::Fuzzer;
 use log::warn;
 use std::{fs, path::PathBuf, process::Command, time::Duration};
+use tester::Tester;
 
 #[derive(Parser)]
 #[clap(author, version, about, long_about = None)]
 struct Args {
     #[clap(subcommand)]
     action: Action,
+    #[clap(short = 'l')]
+    time_limit: Option<f64>,
+    #[clap(short = 't')]
+    threads: Option<u64>,
 }
 
 #[derive(Subcommand)]
 enum Action {
     Test {
-        test_file: PathBuf,
         command: String,
-        #[clap(short = 'l')]
-        time_limit: Option<f64>,
+        test_file: PathBuf,
     },
     Fuzz {
         command: String,
         input: String,
         #[clap(short = 'o')]
         output: Option<PathBuf>,
-        #[clap(short = 'l')]
-        time_limit: Option<f64>,
-        #[clap(short = 't')]
-        threads: Option<u64>,
     },
 }
 
@@ -42,35 +42,29 @@ fn main() -> Result<(), Error> {
 
     let args = Args::parse();
 
-    match args.action {
+    let thread_count = args.threads.unwrap_or(processor_count());
+    let time_limit = args.time_limit.map(Duration::from_secs_f64);
+
+    let results = match args.action {
         Action::Test {
             test_file: config,
             command,
-            time_limit,
         } => {
             let file = fs::read_to_string(config)?;
             let testfile = file.parse()?;
-            test::run_tests(command, testfile, time_limit.map(Duration::from_secs_f64))?;
+            let tester = Tester::new(testfile, command);
+            runner::run(tester, thread_count, time_limit)
         }
         Action::Fuzz {
             command,
             input,
-            threads,
-            time_limit,
             output: _,
         } => {
-            let results = fuzz::run_fuzz(
-                threads.unwrap_or_else(processor_count),
-                FuzzConfig {
-                    time_limit: time_limit.map(Duration::from_secs_f64),
-                    command,
-                    input: FuzzInput::parse(&input)?,
-                },
-                time_limit.map(Duration::from_secs_f64),
-            );
-            process::summarize_results(results);
+            let fuzzer = Fuzzer::parse(&input, command)?;
+            runner::run(fuzzer, thread_count, time_limit)
         }
-    }
+    };
+    result::summarize_results(results);
 
     Ok(())
 }

@@ -2,6 +2,7 @@ use std::str::FromStr;
 
 use crate::error::Error;
 
+#[derive(Debug, Clone)]
 pub struct TestFile {
     pub tests: Vec<TestCase>,
 }
@@ -42,7 +43,7 @@ impl FromStr for TestFile {
                     }
                 } else if field == 1 {
                     input.push_str(line);
-                        input.push('\n');
+                    input.push('\n');
                 } else if field == 2 {
                     output.push_str(line);
                     output.push('\n');
