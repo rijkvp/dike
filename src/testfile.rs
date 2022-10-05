@@ -11,7 +11,13 @@ impl TestFile {
     pub fn from_results(results: &Vec<ProcessResult>) -> TestFile {
         let mut tests = Vec::new();
         for (n, result) in results.into_iter().enumerate() {
-            tests.push(TestCase::new(format!("Test #{}", n), result.stdin.clone(), Some(result.stdout.clone())));
+            if let ProcessResult::Finished { stdin, stdout, .. } = result {
+                tests.push(TestCase::new(
+                    format!("Test #{}", n),
+                    stdin.clone(),
+                    Some(stdout.clone()),
+                ));
+            }
         }
         Self { tests }
     }

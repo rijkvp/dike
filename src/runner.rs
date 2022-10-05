@@ -20,6 +20,7 @@ pub trait Controller {
 pub struct RunCommand {
     pub command: String,
     pub input: Option<String>,
+    pub time_limit: Option<Duration>,
 }
 
 pub fn run<T: Controller + Send + Sync + Clone + 'static>(
@@ -55,7 +56,8 @@ pub fn run<T: Controller + Send + Sync + Clone + 'static>(
     let mut stdout = stdout();
     let start_time = Instant::now();
     let mut results = Vec::new();
-    loop {
+    let mut is_stopping = false;
+    while !shutdown_signal.load(Ordering::Relaxed) {
         let mut new_reports: Vec<ProcessResult> = result_rx.try_iter().collect();
         results.append(&mut new_reports);
 
@@ -72,14 +74,11 @@ pub fn run<T: Controller + Send + Sync + Clone + 'static>(
         );
         stdout.flush().unwrap();
 
-        if let Some(time_limit) = run_time {
-            if start_time.elapsed() > time_limit {
-                println!("\n{}", "Time limit exceeded..".yellow());
+        if let Some(run_time) = run_time {
+            if start_time.elapsed() > run_time && !is_stopping {
                 stop_signal.store(true, Ordering::Relaxed);
+                is_stopping = true;
             }
-        }
-        if shutdown_signal.load(Ordering::Relaxed) {
-            break;
         }
         thread::sleep(Duration::from_millis(50));
     }
@@ -95,7 +94,7 @@ fn spawn_worker<T: Controller + Send + Sync + 'static>(
     thread::spawn(move || {
         while !stop_signal.load(Ordering::Relaxed) {
             if let Some(cmd) = controller.get() {
-                let result = run_command(&cmd.command, cmd.input);
+                let result = run_command(&cmd.command, cmd.input, cmd.time_limit);
                 if let Err(e) = result_sender.try_send(result) {
                     debug!("Failed to send report: {e}")
                 };
@@ -107,7 +106,7 @@ fn spawn_worker<T: Controller + Send + Sync + 'static>(
 }
 
 /// Runs the command and optionally writes input to stdin.
-fn run_command(cmd: &str, input: Option<String>) -> ProcessResult {
+fn run_command(cmd: &str, input: Option<String>, time_limit: Option<Duration>) -> ProcessResult {
     let start_time = Instant::now();
     let mut child = Command::new("sh")
         .arg("-c")
@@ -122,6 +121,15 @@ fn run_command(cmd: &str, input: Option<String>) -> ProcessResult {
         stdin
             .write_all(input.as_bytes())
             .expect("failed to write stdin");
+    }
+    if let Some(time_limit) = time_limit {
+        while let None = child.try_wait().unwrap() {
+            if start_time.elapsed() > time_limit {
+                child.kill().unwrap();
+                return ProcessResult::Unfinished { stdin: input };
+            }
+            thread::sleep(Duration::from_millis(50));
+        }
     }
     let output = child.wait_with_output().unwrap();
     ProcessResult::from_output(&output, input, start_time.elapsed())

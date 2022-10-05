@@ -3,16 +3,22 @@ use crate::{
     runner::{Controller, RunCommand},
 };
 use rand::Rng;
+use std::time::Duration;
 
 #[derive(Debug, Clone)]
 pub struct Fuzzer {
     pub command: String,
+    pub time_limit: Option<Duration>,
     pub min: i64,
     pub max: i64,
 }
 
 impl Fuzzer {
-    pub fn parse(string: &str, command: String) -> Result<Self, Error> {
+    pub fn parse(
+        string: &str,
+        command: String,
+        time_limit: Option<Duration>,
+    ) -> Result<Self, Error> {
         let spilts: Vec<&str> = string.split('-').collect();
         if spilts.len() != 2 {
             return Err(Error::Prase("Invalid count of '-'.".to_string()));
@@ -25,7 +31,12 @@ impl Fuzzer {
             .trim()
             .parse::<i64>()
             .map_err(|e| Error::Prase(format!("Failed to convert second part to string: {e}")))?;
-        Ok(Self { command, min, max })
+        Ok(Self {
+            command,
+            min,
+            max,
+            time_limit,
+        })
     }
 }
 
@@ -37,6 +48,7 @@ impl Controller for Fuzzer {
                 "{}\n",
                 rand::thread_rng().gen_range(self.min..self.max)
             )),
+            time_limit: self.time_limit,
         })
     }
 }

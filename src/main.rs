@@ -9,16 +9,16 @@ use clap::{Parser, Subcommand};
 use error::Error;
 use fuzzer::Fuzzer;
 use log::warn;
-use testfile::TestFile;
 use std::{fs, path::PathBuf, process::Command, time::Duration};
 use tester::Tester;
+use testfile::TestFile;
 
 #[derive(Parser)]
 #[clap(author, version, about)]
 struct Args {
     #[clap(subcommand)]
     action: Action,
-    /// Stops running after specified amount of seconds
+    /// Time limit for each run
     #[clap(short = 'l')]
     time_limit: Option<f64>,
     /// Sets a custom amount of threads
@@ -50,6 +50,9 @@ enum Action {
         command: String,
         /// Input template to specify the input format
         input: String,
+        /// Run for specified amount of seconds
+        #[clap(short = 'r')]
+        run_time: Option<f64>,
     },
 }
 
@@ -68,15 +71,21 @@ fn main() -> Result<(), Error> {
         } => {
             let file = fs::read_to_string(config)?;
             let testfile = file.parse()?;
-            let tester = Tester::new(testfile, command);
-            runner::run(tester, thread_count, time_limit)
+            let tester = Tester::new(
+                testfile,
+                command,
+                time_limit.unwrap_or(Duration::from_secs(1)),
+            );
+            runner::run(tester, thread_count, None)
         }
         Action::Fuzz {
             command,
             input,
+            run_time,
         } => {
-            let fuzzer = Fuzzer::parse(&input, command)?;
-            runner::run(fuzzer, thread_count, time_limit)
+            let fuzzer = Fuzzer::parse(&input, command, time_limit)?;
+            let run_time = run_time.map(Duration::from_secs_f64);
+            runner::run(fuzzer, thread_count, run_time)
         }
     };
 
