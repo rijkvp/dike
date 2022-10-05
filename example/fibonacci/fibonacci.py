@@ -5,4 +5,9 @@ def fibbonacci(n):
         return n
     else:
         return fibbonacci(n-1) + fibbonacci(n-2)
-print(fibbonacci(int(input())))
+
+n = int(input())
+if n == 9:
+    exit(2)
+else:
+    print(fibbonacci(n))

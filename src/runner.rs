@@ -1,10 +1,9 @@
-use crate::result::ProcessResult;
 use crossbeam::channel::{unbounded, Sender};
 use log::debug;
 use owo_colors::OwoColorize;
 use std::{
     io::{stdout, Write},
-    process::{Command, Stdio},
+    process::{Command, Output, Stdio},
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc,
@@ -23,6 +22,62 @@ pub struct RunCommand {
     pub time_limit: Option<Duration>,
 }
 
+#[derive(Debug, Clone)]
+pub enum ProcessResult {
+    Unfinished(Option<String>),
+    Finished(ProcessOutput),
+}
+
+impl ProcessResult {
+    pub fn from_output(output: &Output, stdin: Option<String>, duration: Duration) -> Self {
+        Self::Finished(ProcessOutput::from_output(output, duration, stdin))
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ProcessOutput {
+    pub status: Option<i32>,
+    pub duration: Duration,
+    pub stdin: Option<String>,
+    pub stdout: String,
+    pub stderr: String,
+}
+
+impl ProcessOutput {
+    fn from_output(output: &Output, duration: Duration, stdin: Option<String>) -> Self {
+        Self {
+            status: output.status.code(),
+            duration,
+            stdin,
+            stdout: String::from_utf8_lossy(&output.stdout).to_string(),
+            stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+        }
+    }
+
+    pub fn print(&self) {
+        if self.status != Some(0) {
+            let exit_code = self
+                .status
+                .map(|s| s.to_string())
+                .unwrap_or("unkown".to_string());
+            println!(
+                "{}",
+                format_args!("Failed (exit code {}, took {:?})", exit_code, self.duration).red()
+            );
+        } else {
+            println!("Took {:?}", self.duration.bright_green());
+        }
+        if let Some(stdin) = &self.stdin {
+            println!("{} {}", "stdin:".bold(), stdin.trim_end());
+        }
+        if self.stdout.len() > 0 {
+            println!("{} {}", "stdout:".bold(), self.stdout.trim_end());
+        }
+        if self.stderr.len() > 0 {
+            println!("{} {}", "stderr:".bold(), self.stderr.trim_end());
+        }
+    }
+}
 pub fn run<T: Controller + Send + Sync + Clone + 'static>(
     controller: T,
     thread_count: u64,
@@ -126,7 +181,7 @@ fn run_command(cmd: &str, input: Option<String>, time_limit: Option<Duration>) -
         while let None = child.try_wait().unwrap() {
             if start_time.elapsed() > time_limit {
                 child.kill().unwrap();
-                return ProcessResult::Unfinished { stdin: input };
+                return ProcessResult::Unfinished(input);
             }
             thread::sleep(Duration::from_millis(50));
         }

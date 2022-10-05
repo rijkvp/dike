@@ -1,21 +1,20 @@
+use crate::{error::Error, runner::ProcessResult, test::Test};
 use std::str::FromStr;
-
-use crate::{error::Error, result::ProcessResult};
 
 #[derive(Debug, Clone)]
 pub struct TestFile {
-    pub tests: Vec<TestCase>,
+    pub tests: Vec<Test>,
 }
 
 impl TestFile {
     pub fn from_results(results: &Vec<ProcessResult>) -> TestFile {
         let mut tests = Vec::new();
         for (n, result) in results.into_iter().enumerate() {
-            if let ProcessResult::Finished { stdin, stdout, .. } = result {
-                tests.push(TestCase::new(
+            if let ProcessResult::Finished(output) = result {
+                tests.push(Test::new(
                     format!("Test #{}", n),
-                    stdin.clone(),
-                    Some(stdout.clone()),
+                    output.stdin.clone(),
+                    Some(output.stdout.clone()),
                 ));
             }
         }
@@ -79,7 +78,7 @@ impl FromStr for TestFile {
                     None
                 }
             };
-            let test = TestCase::new(name, input, string);
+            let test = Test::new(name, input, string);
             tests.push(test);
         }
         Ok(Self { tests })
@@ -111,22 +110,5 @@ impl ToString for TestFile {
             }
         }
         string
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct TestCase {
-    pub name: String,
-    pub input: Option<String>,
-    pub output: Option<String>,
-}
-
-impl TestCase {
-    pub fn new(name: String, input: Option<String>, output: Option<String>) -> Self {
-        Self {
-            name,
-            input,
-            output,
-        }
     }
 }

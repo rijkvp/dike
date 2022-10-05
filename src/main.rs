@@ -1,16 +1,17 @@
 mod error;
 mod fuzzer;
-mod result;
+mod report;
 mod runner;
-mod tester;
+mod test;
 mod testfile;
 
 use clap::{Parser, Subcommand};
 use error::Error;
 use fuzzer::Fuzzer;
 use log::warn;
+use report::{Report, TestReport};
 use std::{fs, path::PathBuf, process::Command, time::Duration};
-use tester::Tester;
+use test::Tester;
 use testfile::TestFile;
 
 #[derive(Parser)]
@@ -24,9 +25,6 @@ struct Args {
     /// Sets a custom amount of threads
     #[clap(short = 't')]
     thread_count: Option<u64>,
-    /// Outputs results to a testfile
-    #[clap(short = 'o', value_name = "FILE")]
-    output: Option<PathBuf>,
 }
 
 #[test]
@@ -53,6 +51,9 @@ enum Action {
         /// Run for specified amount of seconds
         #[clap(short = 'r')]
         run_time: Option<f64>,
+        /// Outputs results to a testfile
+        #[clap(short = 'o', value_name = "FILE")]
+        output: Option<PathBuf>,
     },
 }
 
@@ -64,7 +65,7 @@ fn main() -> Result<(), Error> {
     let thread_count = args.thread_count.unwrap_or(processor_count());
     let time_limit = args.time_limit.map(Duration::from_secs_f64);
 
-    let results = match args.action {
+    match args.action {
         Action::Test {
             test_file: config,
             command,
@@ -72,29 +73,33 @@ fn main() -> Result<(), Error> {
             let file = fs::read_to_string(config)?;
             let testfile = file.parse()?;
             let tester = Tester::new(
-                testfile,
+                &testfile,
                 command,
                 time_limit.unwrap_or(Duration::from_secs(1)),
             );
-            runner::run(tester, thread_count, None)
+            let results = runner::run(tester, thread_count, None);
+            let report = Report::from_results(results);
+            report.print_summary();
+            let test_report = TestReport::from_report(report, testfile.tests);
+            test_report.print_summary();
         }
         Action::Fuzz {
             command,
             input,
             run_time,
+            output,
         } => {
             let fuzzer = Fuzzer::parse(&input, command, time_limit)?;
             let run_time = run_time.map(Duration::from_secs_f64);
-            runner::run(fuzzer, thread_count, run_time)
+            let results = runner::run(fuzzer, thread_count, run_time);
+            if let Some(output) = output {
+                let testfile = TestFile::from_results(&results);
+                fs::write(output, testfile.to_string())?;
+            }
+            let report = Report::from_results(results);
+            report.print_summary();
         }
     };
-
-    if let Some(output) = args.output {
-        let testfile = TestFile::from_results(&results);
-        fs::write(output, testfile.to_string())?;
-    }
-
-    result::summarize_results(&results);
 
     Ok(())
 }
