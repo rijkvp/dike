@@ -7,10 +7,11 @@ mod testfile;
 
 use clap::{Parser, Subcommand};
 use error::Error;
-use fuzzer::Fuzzer;
+use fuzzer::{Fuzzer, InputTemplate};
 use log::warn;
+use owo_colors::OwoColorize;
 use report::{Report, TestReport};
-use std::{fs, path::PathBuf, process::Command, time::Duration};
+use std::{fs, path::PathBuf, process::Command, str::FromStr, time::Duration};
 use test::Tester;
 use testfile::TestFile;
 
@@ -57,9 +58,18 @@ enum Action {
     },
 }
 
-fn main() -> Result<(), Error> {
+fn main() {
     env_logger::init();
+    if let Err(e) = run() {
+        eprintln!(
+            "{} {}",
+            "Error:".bright_red().bold().underline(),
+            e.to_string().white()
+        );
+    }
+}
 
+fn run() -> Result<(), Error> {
     let args = Args::parse();
 
     let thread_count = args.thread_count.unwrap_or(processor_count());
@@ -89,7 +99,8 @@ fn main() -> Result<(), Error> {
             run_time,
             output,
         } => {
-            let fuzzer = Fuzzer::parse(&input, command, time_limit)?;
+            let template = InputTemplate::from_str(&input)?;
+            let fuzzer = Fuzzer::new(template, command, time_limit);
             let run_time = run_time.map(Duration::from_secs_f64);
             let results = runner::run(fuzzer, thread_count, run_time);
             if let Some(output) = output {
@@ -100,7 +111,6 @@ fn main() -> Result<(), Error> {
             report.print_summary();
         }
     };
-
     Ok(())
 }
 

@@ -16,8 +16,8 @@ pub trait Controller {
     fn get(&mut self) -> Option<RunCommand>;
 }
 
-pub struct RunCommand {
-    pub command: String,
+pub struct RunCommand<'a> {
+    pub command: &'a str,
     pub input: Option<String>,
     pub time_limit: Option<Duration>,
 }
@@ -149,7 +149,7 @@ fn spawn_worker<T: Controller + Send + Sync + 'static>(
     thread::spawn(move || {
         while !stop_signal.load(Ordering::Relaxed) {
             if let Some(cmd) = controller.get() {
-                let result = run_command(&cmd.command, cmd.input, cmd.time_limit);
+                let result = run_command(cmd);
                 if let Err(e) = result_sender.try_send(result) {
                     debug!("Failed to send report: {e}")
                 };
@@ -161,31 +161,31 @@ fn spawn_worker<T: Controller + Send + Sync + 'static>(
 }
 
 /// Runs the command and optionally writes input to stdin.
-fn run_command(cmd: &str, input: Option<String>, time_limit: Option<Duration>) -> ProcessResult {
+fn run_command(run: RunCommand) -> ProcessResult {
     let start_time = Instant::now();
     let mut child = Command::new("sh")
         .arg("-c")
-        .arg(cmd)
+        .arg(run.command)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
         .unwrap();
     let mut stdin = child.stdin.take().unwrap();
-    if let Some(input) = &input {
+    if let Some(input) = &run.input {
         stdin
             .write_all(input.as_bytes())
             .expect("failed to write stdin");
     }
-    if let Some(time_limit) = time_limit {
+    if let Some(time_limit) = run.time_limit {
         while let None = child.try_wait().unwrap() {
             if start_time.elapsed() > time_limit {
                 child.kill().unwrap();
-                return ProcessResult::Unfinished(input);
+                return ProcessResult::Unfinished(run.input.clone());
             }
             thread::sleep(Duration::from_millis(50));
         }
     }
     let output = child.wait_with_output().unwrap();
-    ProcessResult::from_output(&output, input, start_time.elapsed())
+    ProcessResult::from_output(&output, run.input.clone(), start_time.elapsed())
 }

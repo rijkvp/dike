@@ -58,7 +58,7 @@ impl Controller for Tester {
             .clone();
         self.left.retain(|i| i != &index);
         Some(RunCommand {
-            command: self.command.clone(),
+            command: &self.command,
             input: self.tests[&index].input.clone(),
             time_limit: Some(self.time_limit),
         })
