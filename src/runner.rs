@@ -176,6 +176,7 @@ fn run_command(run: RunCommand) -> ProcessResult {
         stdin
             .write_all(input.as_bytes())
             .expect("failed to write stdin");
+        stdin.flush().expect("failed to flush stdin");
     }
     if let Some(time_limit) = run.time_limit {
         while let None = child.try_wait().unwrap() {
