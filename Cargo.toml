@@ -1,8 +1,8 @@
 [package]
 name = "dike"
-version = "0.2.0"
+version = "0.3.0"
 authors = ["Rijk van Putten <rijk@rijkvp.nl>"]
-description = "Multithreaded code tester"
+description = "Multithreaded code tester/fuzzer"
 edition = "2021"
 license = "GPL-3.0"
 
@@ -11,7 +11,7 @@ clap = { version = "4.0", features = ["derive"] }
 thiserror = "1.0"
 owo-colors = "3.5"
 log = "0.4"
-env_logger = "0.9"
+env_logger = "0.10"
 rand = "0.8"
 crossbeam = "0.8"
 signal-hook = "0.3"

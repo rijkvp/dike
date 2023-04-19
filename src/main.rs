@@ -7,11 +7,11 @@ mod testfile;
 
 use clap::{Parser, Subcommand};
 use error::Error;
-use fuzzer::{Fuzzer, InputTemplate};
+use fuzzer::Fuzzer;
 use log::warn;
 use owo_colors::OwoColorize;
 use report::{Report, TestReport};
-use std::{fs, path::PathBuf, process::Command, str::FromStr, time::Duration};
+use std::{fs, path::PathBuf, process::Command, time::Duration};
 use test::Tester;
 use testfile::TestFile;
 
@@ -46,9 +46,9 @@ enum Action {
     /// Tests a program with randomly generated testcases
     Fuzz {
         /// Command that runs the program to test
-        command: String,
-        /// Input template to specify the input format
-        input: String,
+        cmd: String,
+        /// Command that generates the inpu:w
+        input_cmd: String,
         /// Run for specified amount of seconds
         #[clap(short = 'r')]
         run_time: Option<f64>,
@@ -94,13 +94,12 @@ fn run() -> Result<(), Error> {
             test_report.print_summary();
         }
         Action::Fuzz {
-            command,
-            input,
+            cmd: command,
+            input_cmd,
             run_time,
             output,
         } => {
-            let template = InputTemplate::from_str(&input)?;
-            let fuzzer = Fuzzer::new(template, command, time_limit);
+            let fuzzer = Fuzzer::new(input_cmd, command, time_limit);
             let run_time = run_time.map(Duration::from_secs_f64);
             let results = runner::run(fuzzer, thread_count, run_time);
             if let Some(output) = output {

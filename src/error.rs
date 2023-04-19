@@ -4,6 +4,4 @@ use thiserror::Error;
 pub enum Error {
     #[error("I/O: {0}")]
     IO(#[from] std::io::Error),
-    #[error("Parse: {0}")]
-    Prase(String),
 }
