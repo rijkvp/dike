@@ -1,44 +1,24 @@
 use crate::{
-    runner::{Controller, RunCommand},
+    runner::{CmdOptions, Controller},
     testfile::TestFile,
 };
 use rand::seq::IteratorRandom;
 use std::collections::HashMap;
 use std::time::Duration;
-
-#[derive(Debug, Clone)]
-pub struct Test {
-    pub name: String,
-    pub input: Option<String>,
-    pub output: Option<String>,
-}
-
-impl Test {
-    pub fn new(name: String, input: Option<String>, output: Option<String>) -> Self {
-        Self {
-            name,
-            input,
-            output,
-        }
-    }
-}
+use tracing::error;
 
 #[derive(Debug, Clone)]
 pub struct Tester {
-    tests: HashMap<u64, Test>,
+    tests: HashMap<usize, TestFile>,
     command: String,
-    left: Vec<u64>,
+    left: Vec<usize>,
     time_limit: Duration,
 }
 
 impl Tester {
-    pub fn new(testfile: &TestFile, command: String, time_limit: Duration) -> Self {
-        let tests: HashMap<u64, Test> = testfile
-            .tests
-            .iter()
-            .enumerate()
-            .map(|(n, t)| (n as u64, t.clone()))
-            .collect();
+    pub fn new(tests: Vec<TestFile>, command: String, time_limit: Duration) -> Self {
+        let tests: HashMap<usize, TestFile> =
+            tests.into_iter().enumerate().map(|(n, t)| (n, t)).collect();
         let left = tests.keys().map(|n| *n).collect();
         Self {
             tests,
@@ -50,17 +30,21 @@ impl Tester {
 }
 
 impl Controller for Tester {
-    fn get(&mut self) -> Option<RunCommand> {
+    fn get(&mut self) -> Option<CmdOptions> {
         let index = self
             .left
             .iter()
             .choose_stable(&mut rand::thread_rng())?
             .clone();
         self.left.retain(|i| i != &index);
-        Some(RunCommand {
-            command: &self.command,
-            input: self.tests[&index].input.clone(),
-            time_limit: Some(self.time_limit),
-        })
+        let Ok(input) = self.tests[&index].get_input() else {
+            error!("Failed to get input");
+            return None;
+        };
+        Some(CmdOptions::new(
+            &self.command,
+            Some(input),
+            Some(self.time_limit),
+        ))
     }
 }

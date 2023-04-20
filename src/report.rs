@@ -1,6 +1,7 @@
 use crate::{
-    runner::{ProcessOutput, ProcessResult},
-    test::Test,
+    error::Error,
+    runner::{CmdOutput, CmdStatus},
+    testfile::TestFile,
 };
 use owo_colors::OwoColorize;
 use similar::{ChangeTag, TextDiff};
@@ -8,18 +9,18 @@ use std::collections::{HashMap, HashSet};
 
 pub struct Report {
     unfinished: Vec<(u64, String)>,
-    failed: Vec<ProcessOutput>,
-    success: Vec<ProcessOutput>,
+    failed: Vec<CmdOutput>,
+    success: Vec<CmdOutput>,
 }
 
 impl Report {
-    pub fn from_results(results: Vec<ProcessResult>) -> Self {
+    pub fn from_results(results: Vec<CmdStatus>) -> Self {
         let mut unfinished = HashMap::<String, u64>::new();
-        let mut failed = Vec::<ProcessOutput>::new();
-        let mut success = Vec::<ProcessOutput>::new();
+        let mut failed = Vec::<CmdOutput>::new();
+        let mut success = Vec::<CmdOutput>::new();
         for result in results.into_iter() {
             match result {
-                ProcessResult::Unfinished(stdin) => {
+                CmdStatus::Killed(stdin) => {
                     if let Some(stdin) = stdin {
                         if let Some(val) = unfinished.get_mut(&stdin) {
                             *val += 1;
@@ -28,7 +29,7 @@ impl Report {
                         }
                     }
                 }
-                ProcessResult::Finished(output) => {
+                CmdStatus::Terminated(output) => {
                     if output.status != Some(0) {
                         failed.push(output);
                     } else {
@@ -47,12 +48,12 @@ impl Report {
         }
     }
 
-    fn finished_count(&self) -> usize {
+    fn terminated_count(&self) -> usize {
         self.success.len() + self.failed.len()
     }
 
     fn total_count(&self) -> usize {
-        self.unfinished.len() + self.finished_count()
+        self.unfinished.len() + self.terminated_count()
     }
 
     pub fn print_summary(&self) {
@@ -63,16 +64,29 @@ impl Report {
             "<<".dimmed(),
         );
 
-        print!("{} total", self.total_count());
-        if self.failed.len() < self.total_count() {
+        print!("{} total, ", self.total_count());
+        if self.terminated_count() < self.total_count() {
+            let terminated_percent =
+                self.terminated_count() as f64 / self.terminated_count() as f64 * 100.0;
             print!(
-                ", {}/{} finished",
-                self.finished_count().red(),
-                self.total_count()
+                "{}/{} terminated ({:.2}%), ",
+                self.terminated_count().red(),
+                self.total_count(),
+                terminated_percent,
             );
+        } else {
+            print!("{}, ", "all finished".green());
         }
         if self.failed.len() > 0 {
-            print!(", {}/{} failed", self.failed.len(), self.finished_count());
+            let failed_percent = self.failed.len() as f64 / self.terminated_count() as f64 * 100.0;
+            print!(
+                "{}/{} failed ({:.2}%)",
+                self.failed.len(),
+                self.terminated_count(),
+                failed_percent
+            );
+        } else {
+            print!("{}", "all succeeded".green());
         }
         print!("\n");
 
@@ -103,16 +117,16 @@ impl Report {
 }
 
 pub struct TestReport {
-    failed: Vec<(Test, HashSet<(String, String)>)>,
+    failed: Vec<(TestFile, HashSet<(String, String)>)>,
 }
 
 impl TestReport {
-    pub fn from_report(report: Report, tests: Vec<Test>) -> Self {
-        let mut failed = Vec::<(Test, HashSet<(String, String)>)>::new();
+    pub fn from_report(report: Report, tests: Vec<TestFile>) -> Self {
+        let mut failed = Vec::<(TestFile, HashSet<(String, String)>)>::new();
         let group = group_outputs(report.success);
         for test in tests {
             // Get a test that maches the group with similar input
-            if let (Some(test_input), Some(test_output)) = (&test.input, &test.output) {
+            if let (Ok(test_input), Ok(test_output)) = (&test.get_input(), &test.get_output()) {
                 if let Some((_, outputs)) = group.iter().find(|(i, _)| i == test_input) {
                     // Check if the output is correct
                     let mut sets = HashSet::new();
@@ -130,7 +144,7 @@ impl TestReport {
         Self { failed }
     }
 
-    pub fn print_summary(&self) {
+    pub fn generate(&self) -> Result<(), Error> {
         println!(
             "\n\n{} {} {}\n",
             ">>".dimmed(),
@@ -139,11 +153,10 @@ impl TestReport {
         );
         if self.failed.len() > 0 {
             for (test, outputs) in self.failed.iter() {
-                println!("{}", format_args!("  Failed {}", test.name).red());
-                if let Some(input) = &test.input {
-                    println!("{}", format_args!("  Input:\n{}", input.trim_end()).cyan());
-                }
-                let output = test.output.as_ref().unwrap();
+                println!("{}", format_args!("  Failed {}", test.name()).red());
+                let input = test.get_input()?;
+                let output = test.get_output()?;
+                println!("{}", format_args!("  Input:\n{}", input.trim_end()).cyan());
                 for (stdout, stderr) in outputs {
                     show_diff(&stdout, &output);
                     if stderr.len() > 0 {
@@ -154,11 +167,12 @@ impl TestReport {
         } else {
             println!("{}", "Passed all tests!".green())
         }
+        Ok(())
     }
 }
 
-fn group_outputs(outputs: Vec<ProcessOutput>) -> Vec<(String, Vec<ProcessOutput>)> {
-    let mut groups = HashMap::<String, Vec<ProcessOutput>>::new();
+fn group_outputs(outputs: Vec<CmdOutput>) -> Vec<(String, Vec<CmdOutput>)> {
+    let mut groups = HashMap::<String, Vec<CmdOutput>>::new();
     for output in outputs.into_iter() {
         if let Some(input) = &output.stdin {
             if let Some(val) = groups.get_mut(input) {

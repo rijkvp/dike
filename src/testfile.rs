@@ -1,114 +1,62 @@
-use crate::{error::Error, runner::ProcessResult, test::Test};
-use std::str::FromStr;
+use crate::error::Error;
+use std::{fs, path::PathBuf};
+use tracing::error;
+
+const INPUT_EXT: &str = "in";
+const OUTPUT_EXT: &str = "out";
 
 #[derive(Debug, Clone)]
 pub struct TestFile {
-    pub tests: Vec<Test>,
+    name: String,
+    path: PathBuf,
 }
 
 impl TestFile {
-    pub fn from_results(results: &Vec<ProcessResult>) -> TestFile {
-        let mut tests = Vec::new();
-        for (n, result) in results.into_iter().enumerate() {
-            if let ProcessResult::Finished(output) = result {
-                tests.push(Test::new(
-                    format!("Test #{}", n),
-                    output.stdin.clone(),
-                    Some(output.stdout.clone()),
-                ));
-            }
-        }
-        Self { tests }
+    pub fn new(path: PathBuf) -> Self {
+        let name = path
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string();
+        Self { name, path }
+    }
+
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub fn get_input(&self) -> Result<String, Error> {
+        Ok(fs::read_to_string(self.path.with_extension(INPUT_EXT))?)
+    }
+
+    pub fn get_output(&self) -> Result<String, Error> {
+        Ok(fs::read_to_string(self.path.with_extension(OUTPUT_EXT))?)
     }
 }
 
-impl FromStr for TestFile {
-    type Err = Error;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let mut tests = Vec::new();
-        for fragment in s.split('|') {
-            let fragment = fragment.trim();
-            if fragment.is_empty() {
-                continue;
-            }
-            let mut name = String::new();
-            let mut input = String::new();
-            let mut string = String::new();
-            let mut field = -1;
-            for (n, line) in fragment.lines().enumerate() {
-                if n == 0 {
-                    name += line;
+pub fn read_tests(test_dir: PathBuf) -> Result<Vec<TestFile>, Error> {
+    let mut input_files = Vec::<PathBuf>::new();
+    for entry in fs::read_dir(&test_dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        if path.is_file() {
+            if let Some(ext) = path.extension() {
+                if ext.to_str() == Some(INPUT_EXT) {
+                    input_files.push(path);
                 }
-                if line.starts_with('<') {
-                    if &line[1..2] == "<" {
-                        field = 1;
-                    } else {
-                        input.push_str(&line[1..].trim_start());
-                        input.push('\n');
-                        field = 0;
-                    }
-                } else if line.starts_with('>') {
-                    if &line[1..2] == ">" {
-                        field = 2;
-                    } else {
-                        string.push_str(&line[1..].trim_start());
-                        string.push('\n');
-                        field = 0;
-                    }
-                } else if field == 1 {
-                    input.push_str(line);
-                    input.push('\n');
-                } else if field == 2 {
-                    string.push_str(line);
-                    string.push('\n');
-                }
-            }
-            let input = {
-                if !input.is_empty() {
-                    Some(input)
-                } else {
-                    None
-                }
-            };
-            let string = {
-                if !string.is_empty() {
-                    Some(string)
-                } else {
-                    None
-                }
-            };
-            let test = Test::new(name, input, string);
-            tests.push(test);
-        }
-        Ok(Self { tests })
-    }
-}
-
-impl ToString for TestFile {
-    fn to_string(&self) -> String {
-        let mut string = String::new();
-        for test in &self.tests {
-            string.push_str("| ");
-            string.push_str(&test.name);
-            string.push('\n');
-            if let Some(input) = &test.input {
-                if input.lines().count() > 1 {
-                    string.push_str("<< ");
-                } else {
-                    string.push_str("< ");
-                }
-                string.push_str(&input);
-            }
-            if let Some(output) = &test.output {
-                if output.lines().count() > 1 {
-                    string.push_str(">> ");
-                } else {
-                    string.push_str("> ");
-                }
-                string.push_str(&output);
             }
         }
-        string
     }
+    let mut tests = Vec::<TestFile>::new();
+    for input_path in input_files {
+        let output_path = input_path.with_extension(OUTPUT_EXT);
+        if test_dir.join(output_path).exists() {
+            tests.push(TestFile::new( 
+                input_path.with_extension(""),
+            ));
+        } else {
+            error!("Input file {input_path:?} has no corresponding output");
+        }
+    }
+    return Ok(tests);
 }

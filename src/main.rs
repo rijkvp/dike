@@ -8,12 +8,12 @@ mod testfile;
 use clap::{Parser, Subcommand};
 use error::Error;
 use fuzzer::Fuzzer;
-use log::warn;
 use owo_colors::OwoColorize;
 use report::{Report, TestReport};
-use std::{fs, path::PathBuf, process::Command, time::Duration};
+use std::{path::PathBuf, process::Command, time::Duration};
 use test::Tester;
-use testfile::TestFile;
+use tracing::warn;
+use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
 #[derive(Parser)]
 #[clap(author, version, about)]
@@ -25,7 +25,7 @@ struct Args {
     time_limit: Option<f64>,
     /// Sets a custom amount of threads
     #[clap(short = 't')]
-    thread_count: Option<u64>,
+    threads: Option<u64>,
 }
 
 #[test]
@@ -38,17 +38,17 @@ fn verify_cli() {
 enum Action {
     /// Tests a program with preset testcases
     Test {
+        /// Directy that contains the tests
+        test_dir: PathBuf,
         /// Command that runs the program to test
         command: String,
-        /// File that specifies the tests
-        test_file: PathBuf,
     },
-    /// Tests a program with randomly generated testcases
+    /// Test a program with randomly generated testcases
     Fuzz {
-        /// Command that runs the program to test
-        cmd: String,
         /// Command that generates the inpu:w
         input_cmd: String,
+        /// Command that runs the program to test
+        cmd: String,
         /// Run for specified amount of seconds
         #[clap(short = 'r')]
         run_time: Option<f64>,
@@ -59,7 +59,10 @@ enum Action {
 }
 
 fn main() {
-    env_logger::init();
+    tracing_subscriber::registry()
+        .with(fmt::layer())
+        .with(EnvFilter::from_default_env())
+        .init();
     if let Err(e) = run() {
         eprintln!(
             "{} {}",
@@ -72,26 +75,23 @@ fn main() {
 fn run() -> Result<(), Error> {
     let args = Args::parse();
 
-    let thread_count = args.thread_count.unwrap_or(processor_count());
+    let thread_count = args.threads.unwrap_or(processor_count());
     let time_limit = args.time_limit.map(Duration::from_secs_f64);
 
     match args.action {
-        Action::Test {
-            test_file: config,
-            command,
-        } => {
-            let file = fs::read_to_string(config)?;
-            let testfile = file.parse()?;
+        Action::Test { test_dir, command } => {
+            let tests = testfile::read_tests(test_dir)?;
+            // TODO: Don't clone here
             let tester = Tester::new(
-                &testfile,
+                tests.clone(),
                 command,
                 time_limit.unwrap_or(Duration::from_secs(1)),
             );
             let results = runner::run(tester, thread_count, None);
             let report = Report::from_results(results);
             report.print_summary();
-            let test_report = TestReport::from_report(report, testfile.tests);
-            test_report.print_summary();
+            let test_report = TestReport::from_report(report, tests);
+            test_report.generate()?;
         }
         Action::Fuzz {
             cmd: command,
@@ -102,9 +102,10 @@ fn run() -> Result<(), Error> {
             let fuzzer = Fuzzer::new(input_cmd, command, time_limit);
             let run_time = run_time.map(Duration::from_secs_f64);
             let results = runner::run(fuzzer, thread_count, run_time);
-            if let Some(output) = output {
-                let testfile = TestFile::from_results(&results);
-                fs::write(output, testfile.to_string())?;
+            if let Some(_output) = output {
+                todo!("write output as test directory");
+                //let testfile = TestFile::from_results(&results);
+                //fs::write(output, testfile.to_string())?;
             }
             let report = Report::from_results(results);
             report.print_summary();

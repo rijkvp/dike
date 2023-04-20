@@ -1,5 +1,4 @@
 use crossbeam::channel::{unbounded, Sender};
-use log::debug;
 use owo_colors::OwoColorize;
 use std::{
     io::{stdout, Write},
@@ -11,31 +10,42 @@ use std::{
     thread::{self, JoinHandle},
     time::{Duration, Instant},
 };
+use tracing::debug;
 
 pub trait Controller {
-    fn get(&mut self) -> Option<RunCommand>;
+    fn get(&mut self) -> Option<CmdOptions>;
 }
 
-pub struct RunCommand<'a> {
-    pub command: &'a str,
-    pub input: Option<String>,
-    pub time_limit: Option<Duration>,
+pub struct CmdOptions<'a> {
+    cmd: &'a str,
+    input: Option<String>,
+    time_limit: Option<Duration>,
 }
 
-#[derive(Debug, Clone)]
-pub enum ProcessResult {
-    Unfinished(Option<String>),
-    Finished(ProcessOutput),
-}
-
-impl ProcessResult {
-    pub fn from_output(output: &Output, stdin: Option<String>, duration: Duration) -> Self {
-        Self::Finished(ProcessOutput::from_output(output, duration, stdin))
+impl<'a> CmdOptions<'a> {
+    pub fn new(cmd: &'a str, input: Option<String>, time_limit: Option<Duration>) -> CmdOptions {
+        Self {
+            cmd,
+            input,
+            time_limit,
+        }
     }
 }
 
 #[derive(Debug, Clone)]
-pub struct ProcessOutput {
+pub enum CmdStatus {
+    Killed(Option<String>),
+    Terminated(CmdOutput),
+}
+
+impl CmdStatus {
+    pub fn from_output(output: &Output, stdin: Option<String>, duration: Duration) -> Self {
+        Self::Terminated(CmdOutput::from_output(output, duration, stdin))
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct CmdOutput {
     pub status: Option<i32>,
     pub duration: Duration,
     pub stdin: Option<String>,
@@ -43,7 +53,7 @@ pub struct ProcessOutput {
     pub stderr: String,
 }
 
-impl ProcessOutput {
+impl CmdOutput {
     fn from_output(output: &Output, duration: Duration, stdin: Option<String>) -> Self {
         Self {
             status: output.status.code(),
@@ -82,10 +92,10 @@ pub fn run<T: Controller + Send + Sync + Clone + 'static>(
     controller: T,
     thread_count: u64,
     run_time: Option<Duration>,
-) -> Vec<ProcessResult> {
+) -> Vec<CmdStatus> {
     let stop_signal = Arc::new(AtomicBool::new(false));
     let shutdown_signal = Arc::new(AtomicBool::new(false));
-    let (result_tx, result_rx) = unbounded::<ProcessResult>();
+    let (result_tx, result_rx) = unbounded::<CmdStatus>();
 
     // Spawn worker threads
     let mut threads = Vec::new();
@@ -113,7 +123,7 @@ pub fn run<T: Controller + Send + Sync + Clone + 'static>(
     let mut results = Vec::new();
     let mut is_stopping = false;
     while !shutdown_signal.load(Ordering::Relaxed) {
-        let mut new_reports: Vec<ProcessResult> = result_rx.try_iter().collect();
+        let mut new_reports: Vec<CmdStatus> = result_rx.try_iter().collect();
         results.append(&mut new_reports);
 
         print!(
@@ -143,7 +153,7 @@ pub fn run<T: Controller + Send + Sync + Clone + 'static>(
 /// Spawns a worker thead controlled by the controller
 fn spawn_worker<T: Controller + Send + Sync + 'static>(
     mut controller: T,
-    result_sender: Sender<ProcessResult>,
+    result_sender: Sender<CmdStatus>,
     stop_signal: Arc<AtomicBool>,
 ) -> JoinHandle<()> {
     thread::spawn(move || {
@@ -161,32 +171,32 @@ fn spawn_worker<T: Controller + Send + Sync + 'static>(
 }
 
 /// Runs the command and optionally writes input to stdin.
-fn run_command(run: RunCommand) -> ProcessResult {
+pub fn run_command(options: CmdOptions) -> CmdStatus {
     let start_time = Instant::now();
     let mut child = Command::new("sh")
         .arg("-c")
-        .arg(run.command)
+        .arg(options.cmd)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
         .unwrap();
     let mut stdin = child.stdin.take().unwrap();
-    if let Some(input) = &run.input {
+    if let Some(input) = &options.input {
         stdin
             .write_all(input.as_bytes())
             .expect("failed to write stdin");
         stdin.flush().expect("failed to flush stdin");
     }
-    if let Some(time_limit) = run.time_limit {
+    if let Some(time_limit) = options.time_limit {
         while let None = child.try_wait().unwrap() {
             if start_time.elapsed() > time_limit {
                 child.kill().unwrap();
-                return ProcessResult::Unfinished(run.input.clone());
+                return CmdStatus::Killed(options.input.clone());
             }
             thread::sleep(Duration::from_millis(50));
         }
     }
     let output = child.wait_with_output().unwrap();
-    ProcessResult::from_output(&output, run.input.clone(), start_time.elapsed())
+    CmdStatus::from_output(&output, options.input.clone(), start_time.elapsed())
 }
