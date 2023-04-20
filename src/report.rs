@@ -54,8 +54,8 @@ impl Report {
     pub fn summary(&self) -> String {
         format!(
             "{}/{}/{}",
-            self.success.len().green().bold(),
-            self.terminated_count().blue().bold(),
+            self.failed.len().red().bold(),
+            self.unfinished.len().yellow().bold(),
             self.total_count().bold(),
         )
     }

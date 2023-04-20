@@ -71,7 +71,7 @@ impl CmdOutput {
             let exit_code = self
                 .status
                 .map(|s| s.to_string())
-                .unwrap_or("unkown".to_string());
+                .unwrap_or("(??)".to_string());
             println!(
                 "{}",
                 format_args!("Failed (exit code {}, took {:?})", exit_code, self.duration).red()
