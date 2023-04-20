@@ -9,7 +9,7 @@ use clap::{Parser, Subcommand};
 use error::Error;
 use fuzzer::Fuzzer;
 use owo_colors::OwoColorize;
-use report::{Report, TestReport};
+use report::TestReport;
 use std::{path::PathBuf, process::Command, time::Duration};
 use test::Tester;
 use tracing::warn;
@@ -21,10 +21,10 @@ struct Args {
     #[clap(subcommand)]
     action: Action,
     /// Time limit for each run
-    #[clap(short = 'l')]
+    #[clap(short = 'l', long)]
     time_limit: Option<f64>,
     /// Sets a custom amount of threads
-    #[clap(short = 't')]
+    #[clap(short = 't', long)]
     threads: Option<u64>,
 }
 
@@ -38,22 +38,22 @@ fn verify_cli() {
 enum Action {
     /// Tests a program with preset testcases
     Test {
+        /// Command that runs the program to test
+        cmd: String,
         /// Directy that contains the tests
         test_dir: PathBuf,
-        /// Command that runs the program to test
-        command: String,
     },
     /// Test a program with randomly generated testcases
     Fuzz {
-        /// Command that generates the inpu:w
-        input_cmd: String,
         /// Command that runs the program to test
         cmd: String,
+        /// Command that generates the input
+        input_cmd: String,
         /// Run for specified amount of seconds
-        #[clap(short = 'r')]
+        #[clap(short = 'r', long)]
         run_time: Option<f64>,
         /// Outputs results to a testfile
-        #[clap(short = 'o', value_name = "FILE")]
+        #[clap(short = 'o', long)]
         output: Option<PathBuf>,
     },
 }
@@ -79,17 +79,16 @@ fn run() -> Result<(), Error> {
     let time_limit = args.time_limit.map(Duration::from_secs_f64);
 
     match args.action {
-        Action::Test { test_dir, command } => {
+        Action::Test { cmd, test_dir } => {
             let tests = testfile::read_tests(test_dir)?;
             // TODO: Don't clone here
             let tester = Tester::new(
                 tests.clone(),
-                command,
+                cmd,
                 time_limit.unwrap_or(Duration::from_secs(1)),
             );
-            let results = runner::run(tester, thread_count, None);
-            let report = Report::from_results(results);
-            report.print_summary();
+            let report = runner::run(tester, thread_count, None);
+            report.generate();
             let test_report = TestReport::from_report(report, tests);
             test_report.generate()?;
         }
@@ -101,14 +100,13 @@ fn run() -> Result<(), Error> {
         } => {
             let fuzzer = Fuzzer::new(input_cmd, command, time_limit);
             let run_time = run_time.map(Duration::from_secs_f64);
-            let results = runner::run(fuzzer, thread_count, run_time);
+            let report = runner::run(fuzzer, thread_count, run_time);
             if let Some(_output) = output {
                 todo!("write output as test directory");
                 //let testfile = TestFile::from_results(&results);
                 //fs::write(output, testfile.to_string())?;
             }
-            let report = Report::from_results(results);
-            report.print_summary();
+            report.generate();
         }
     };
     Ok(())

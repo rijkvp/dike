@@ -8,43 +8,38 @@ use similar::{ChangeTag, TextDiff};
 use std::collections::{HashMap, HashSet};
 
 pub struct Report {
-    unfinished: Vec<(u64, String)>,
+    unfinished: HashMap<String, u64>,
     failed: Vec<CmdOutput>,
     success: Vec<CmdOutput>,
 }
 
 impl Report {
-    pub fn from_results(results: Vec<CmdStatus>) -> Self {
-        let mut unfinished = HashMap::<String, u64>::new();
-        let mut failed = Vec::<CmdOutput>::new();
-        let mut success = Vec::<CmdOutput>::new();
-        for result in results.into_iter() {
-            match result {
-                CmdStatus::Killed(stdin) => {
-                    if let Some(stdin) = stdin {
-                        if let Some(val) = unfinished.get_mut(&stdin) {
-                            *val += 1;
-                        } else {
-                            unfinished.insert(stdin.clone(), 1);
-                        }
-                    }
-                }
-                CmdStatus::Terminated(output) => {
-                    if output.status != Some(0) {
-                        failed.push(output);
+    pub fn new() -> Self {
+        Self {
+            unfinished: HashMap::new(),
+            failed: Vec::new(),
+            success: Vec::new(),
+        }
+    }
+
+    pub fn insert(&mut self, result: CmdStatus) {
+        match result {
+            CmdStatus::Killed(stdin) => {
+                if let Some(stdin) = stdin {
+                    if let Some(val) = self.unfinished.get_mut(&stdin) {
+                        *val += 1;
                     } else {
-                        success.push(output);
+                        self.unfinished.insert(stdin.clone(), 1);
                     }
                 }
             }
-        }
-        let mut unfinished: Vec<(u64, String)> =
-            unfinished.into_iter().map(|(k, v)| (v, k)).collect();
-        unfinished.sort_by(|a, b| a.1.cmp(&b.1));
-        Self {
-            unfinished,
-            failed,
-            success,
+            CmdStatus::Terminated(output) => {
+                if output.status != Some(0) {
+                    self.failed.push(output);
+                } else {
+                    self.success.push(output);
+                }
+            }
         }
     }
 
@@ -56,7 +51,16 @@ impl Report {
         self.unfinished.len() + self.terminated_count()
     }
 
-    pub fn print_summary(&self) {
+    pub fn summary(&self) -> String {
+        format!(
+            "{}/{}/{}",
+            self.success.len().green().bold(),
+            self.terminated_count().blue().bold(),
+            self.total_count().bold(),
+        )
+    }
+
+    pub fn generate(&self) {
         println!(
             "\n\n{} {} {}",
             ">>".dimmed(),
@@ -97,7 +101,7 @@ impl Report {
                     .yellow()
                     .bold()
             );
-            for (count, input) in self.unfinished.iter() {
+            for (input, count) in self.unfinished.iter() {
                 println!("{}x {}", count, input.trim());
             }
         }
@@ -153,7 +157,7 @@ impl TestReport {
         );
         if self.failed.len() > 0 {
             for (test, outputs) in self.failed.iter() {
-                println!("{}", format_args!("  Failed {}", test.name()).red());
+                println!("{}", format_args!("  Failed test '{}'", test.name()).red());
                 let input = test.get_input()?;
                 let output = test.get_output()?;
                 println!("{}", format_args!("  Input:\n{}", input.trim_end()).cyan());

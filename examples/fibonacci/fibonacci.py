@@ -1,5 +1,3 @@
-#!/bin/python3
-# Really slow & unoptimized fibonacci example
 def fibbonacci(n):
     if n <= 1:
         return n
@@ -8,6 +6,10 @@ def fibbonacci(n):
 
 n = int(input())
 if n == 9:
+    # Program randomly crashes test
     exit(2)
+elif n == 15:
+    # Program has wrong output test
+    print('8375')
 else:
     print(fibbonacci(n))

@@ -50,12 +50,12 @@ pub fn read_tests(test_dir: PathBuf) -> Result<Vec<TestFile>, Error> {
     let mut tests = Vec::<TestFile>::new();
     for input_path in input_files {
         let output_path = input_path.with_extension(OUTPUT_EXT);
-        if test_dir.join(output_path).exists() {
+        if output_path.exists() {
             tests.push(TestFile::new( 
                 input_path.with_extension(""),
             ));
         } else {
-            error!("Input file {input_path:?} has no corresponding output");
+            error!("Input file {input_path:?} has no corresponding output {output_path:?}");
         }
     }
     return Ok(tests);

@@ -12,6 +12,8 @@ use std::{
 };
 use tracing::debug;
 
+use crate::report::Report;
+
 pub trait Controller {
     fn get(&mut self) -> Option<CmdOptions>;
 }
@@ -92,7 +94,7 @@ pub fn run<T: Controller + Send + Sync + Clone + 'static>(
     controller: T,
     thread_count: u64,
     run_time: Option<Duration>,
-) -> Vec<CmdStatus> {
+) -> Report {
     let stop_signal = Arc::new(AtomicBool::new(false));
     let shutdown_signal = Arc::new(AtomicBool::new(false));
     let (result_tx, result_rx) = unbounded::<CmdStatus>();
@@ -120,22 +122,21 @@ pub fn run<T: Controller + Send + Sync + Clone + 'static>(
     // Control on main thread
     let mut stdout = stdout();
     let start_time = Instant::now();
-    let mut results = Vec::new();
+
+    let mut report = Report::new();
     let mut is_stopping = false;
     while !shutdown_signal.load(Ordering::Relaxed) {
-        let mut new_reports: Vec<CmdStatus> = result_rx.try_iter().collect();
-        results.append(&mut new_reports);
+        // Add new results to report
+        for result in result_rx.try_iter() {
+            report.insert(result);
+        }
 
         print!(
             "\r{} {}",
             format!("Running ({}x)..", thread_count)
                 .bright_magenta()
                 .bold(),
-            format!(
-                "{} {}",
-                results.len().bright_blue().bold(),
-                "results".blue()
-            )
+            report.summary().blue()
         );
         stdout.flush().unwrap();
 
@@ -147,7 +148,7 @@ pub fn run<T: Controller + Send + Sync + Clone + 'static>(
         }
         thread::sleep(Duration::from_millis(50));
     }
-    results
+    report
 }
 
 /// Spawns a worker thead controlled by the controller
