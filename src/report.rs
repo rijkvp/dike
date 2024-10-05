@@ -1,4 +1,5 @@
 use owo_colors::OwoColorize;
+use similar::{ChangeTag, TextDiff};
 
 use crate::{
     loader::TestCase,
@@ -33,6 +34,7 @@ impl TestReport {
             passed,
         }
     }
+
     fn terminated_count(&self) -> usize {
         self.passed.len() + self.failed.len()
     }
@@ -42,49 +44,110 @@ impl TestReport {
     }
 
     pub fn print_report(&self) {
-        println!("{}", "Test summary".bold());
+        println!("{}", "== TEST SUMMARY ==".bold());
         println!(
-            "Finished: {}/{}",
+            "{: >10} {}/{}",
+            "finished:".bold(),
             self.terminated_count(),
             self.total_count()
         );
-        println!("Passed: {}/{}", self.passed.len(), self.terminated_count());
-        println!("Failed: {}/{}", self.failed.len(), self.terminated_count());
+        let failed_count = self.failed.len();
+        let passed_count = self.passed.len();
+        println!(
+            "{: >10} {}",
+            "passed:".bold(),
+            if passed_count == self.terminated_count() {
+                format!("{0}/{0}", passed_count).bright_green().to_string()
+            } else {
+                format!(
+                    "{}/{}",
+                    passed_count.bright_yellow(),
+                    self.terminated_count()
+                )
+            },
+        );
+        println!(
+            "{: >10} {}",
+            "failed:".bold(),
+            if failed_count == 0 {
+                format!("{}/{}", failed_count, self.terminated_count())
+                    .bright_green()
+                    .to_string()
+            } else {
+                format!("{}/{}", failed_count.bright_red(), self.terminated_count())
+            },
+        );
 
         for result in &self.failed {
             match result.result_type {
                 ResultType::Pass => continue,
                 ResultType::Signaled => {
+                    print_failed(&result);
                     println!(
-                        "Test '{}' failed after {:?}, signaled",
-                        result.testcase.name, result.duration
+                        "runtime error, exit status: {}",
+                        (if let Some(status) = result.status {
+                            status.to_string()
+                        } else {
+                            "unknown".to_string()
+                        })
+                        .bold()
                     );
                 }
                 ResultType::WrongOutput => {
-                    println!(
-                        "Test '{}' failed after {:?}, expected: {}, got: {}",
-                        result.testcase.name,
-                        result.duration,
-                        String::from_utf8_lossy(&result.testcase.output)
-                            .trim_end_matches('\n')
-                            .green(),
-                        String::from_utf8_lossy(&result.stdout)
-                            .trim_end_matches('\n')
-                            .red()
-                    );
+                    print_failed(&result);
+                    println!("wrong output");
+                    let output = String::from_utf8_lossy(&result.stdout);
+                    let expected = String::from_utf8_lossy(&result.testcase.output);
+                    print_diff(&output, &expected);
                 }
             }
-            if let Some(status) = result.status {
-                println!("Exit status: {}", status);
-            } else {
-                println!("Exit status: unknown");
-            }
             if !result.stderr.is_empty() {
-                println!(
-                    "Standard error: {}",
-                    String::from_utf8_lossy(&result.stderr).trim_end_matches('\n')
-                );
+                let stderr = String::from_utf8_lossy(&result.stderr);
+                let stderr = stderr.trim_end_matches('\n');
+                if stderr.lines().count() > 1 {
+                    println!("{}\n{}", "stderr:".bold(), stderr);
+                } else {
+                    println!("{: >10} {}", "stderr:".bold(), stderr);
+                }
             }
         }
     }
+}
+
+fn print_failed(result: &TestResult) {
+    print!(
+        "{} {} ({}) ",
+        "FAILED".bright_red().bold(),
+        result.testcase.name,
+        format_duration(result.duration)
+    );
+}
+
+fn print_diff(output: &str, expected: &str) {
+    // trailing newlines are not visible in the output
+    let output = output.trim_end_matches('\n');
+    let expected = expected.trim_end_matches('\n');
+
+    if output.lines().count() == 1 && expected.lines().count() == 1 {
+        println!("{: >10} {}", "got:".bold(), output);
+        println!("{: >10} {}", "expected:".bold(), expected);
+    } else {
+        println!("{}", "output diff:".bold());
+        let diff = TextDiff::from_lines(output, expected);
+        for change in diff.iter_all_changes() {
+            match change.tag() {
+                ChangeTag::Delete => {
+                    print!("{} {}", "-".red().bold(), change.dimmed().strikethrough())
+                }
+                ChangeTag::Insert => print!("{} {}", "+".blue().bold(), change.blue()),
+                ChangeTag::Equal => print!("{} {}", " ", change.green()),
+            };
+        }
+    }
+}
+
+fn format_duration(duration: std::time::Duration) -> String {
+    let secs = duration.as_secs();
+    let millis = duration.subsec_millis();
+    format!("{}.{:02}s", secs, millis)
 }
