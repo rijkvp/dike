@@ -1,4 +1,8 @@
-use crossbeam::channel::{unbounded, Sender};
+use crate::{
+    report::TestReport,
+    tester::{TestExec, Tester},
+};
+use crossbeam_channel::{unbounded, Receiver, Sender};
 use owo_colors::OwoColorize;
 use std::{
     io::{stdout, Write},
@@ -10,39 +14,19 @@ use std::{
     thread::{self, JoinHandle},
     time::{Duration, Instant},
 };
-use tracing::debug;
-
-use crate::report::Report;
-
-pub trait Controller {
-    fn get(&mut self) -> Option<CmdOptions>;
-}
-
-pub struct CmdOptions<'a> {
-    cmd: &'a str,
-    input: Option<String>,
-    time_limit: Option<Duration>,
-}
-
-impl<'a> CmdOptions<'a> {
-    pub fn new(cmd: &'a str, input: Option<String>, time_limit: Option<Duration>) -> CmdOptions {
-        Self {
-            cmd,
-            input,
-            time_limit,
-        }
-    }
-}
 
 #[derive(Debug, Clone)]
-pub enum CmdStatus {
-    Killed(Option<String>),
-    Terminated(CmdOutput),
+pub enum ExecResult {
+    Timeout { test_id: usize },
+    Terminated { test_id: usize, output: CmdOutput },
 }
 
-impl CmdStatus {
-    pub fn from_output(output: &Output, stdin: Option<String>, duration: Duration) -> Self {
-        Self::Terminated(CmdOutput::from_output(output, duration, stdin))
+impl ExecResult {
+    fn from_output(test_id: usize, output: Output, duration: Duration) -> Self {
+        Self::Terminated {
+            test_id,
+            output: CmdOutput::from_output(output, duration),
+        }
     }
 }
 
@@ -50,65 +34,45 @@ impl CmdStatus {
 pub struct CmdOutput {
     pub status: Option<i32>,
     pub duration: Duration,
-    pub stdin: Option<String>,
-    pub stdout: String,
-    pub stderr: String,
+    pub stdout: Vec<u8>,
+    pub stderr: Vec<u8>,
 }
 
 impl CmdOutput {
-    fn from_output(output: &Output, duration: Duration, stdin: Option<String>) -> Self {
+    fn from_output(output: Output, duration: Duration) -> Self {
         Self {
             status: output.status.code(),
             duration,
-            stdin,
-            stdout: String::from_utf8_lossy(&output.stdout).to_string(),
-            stderr: String::from_utf8_lossy(&output.stderr).to_string(),
-        }
-    }
-
-    pub fn print(&self) {
-        if self.status != Some(0) {
-            let exit_code = self
-                .status
-                .map(|s| s.to_string())
-                .unwrap_or("(??)".to_string());
-            println!(
-                "{}",
-                format_args!("Failed (exit code {}, took {:?})", exit_code, self.duration).red()
-            );
-        } else {
-            println!("Took {:?}", self.duration.bright_green());
-        }
-        if let Some(stdin) = &self.stdin {
-            println!("{} {}", "stdin:".bold(), stdin.trim_end());
-        }
-        if self.stdout.len() > 0 {
-            println!("{} {}", "stdout:".bold(), self.stdout.trim_end());
-        }
-        if self.stderr.len() > 0 {
-            println!("{} {}", "stderr:".bold(), self.stderr.trim_end());
+            stdout: output.stdout,
+            stderr: output.stderr,
         }
     }
 }
-pub fn run<T: Controller + Send + Sync + Clone + 'static>(
-    controller: T,
-    thread_count: u64,
-    run_time: Option<Duration>,
-) -> Report {
-    let stop_signal = Arc::new(AtomicBool::new(false));
+
+pub fn run(mut tester: Tester, thread_count: u64) -> TestReport {
     let shutdown_signal = Arc::new(AtomicBool::new(false));
-    let (result_tx, result_rx) = unbounded::<CmdStatus>();
+    let (exec_tx, exec_rx) = unbounded::<TestExec>();
+    let (result_tx, result_rx) = unbounded::<ExecResult>();
+
+    signal_hook::flag::register(signal_hook::consts::SIGINT, shutdown_signal.clone())
+        .expect("Failed to register stop signal.");
 
     // Spawn worker threads
     let mut threads = Vec::new();
     for _ in 0..thread_count {
-        let thread = spawn_worker(controller.clone(), result_tx.clone(), stop_signal.clone());
+        let thread = spawn_worker(exec_rx.clone(), result_tx.clone());
         threads.push(thread);
     }
 
-    signal_hook::flag::register(signal_hook::consts::SIGINT, stop_signal.clone())
-        .expect("Failed to register stop signal.");
+    let execs = tester.execs();
+    thread::spawn(move || {
+        for test_exec in execs {
+            exec_tx.send(test_exec).unwrap();
+        }
+        drop(exec_tx);
+    });
 
+    // Spawn a thread to wait for all workers to finish
     {
         let shutdown_signal = shutdown_signal.clone();
         thread::spawn(move || {
@@ -119,60 +83,54 @@ pub fn run<T: Controller + Send + Sync + Clone + 'static>(
         });
     }
 
-    // Control on main thread
+    // Main thread prints progress and collects results
     let mut stdout = stdout();
-    let start_time = Instant::now();
+    let test_count = tester.total_count();
+    let mut result_count = 0;
 
-    let mut report = Report::new();
-    let mut is_stopping = false;
-    while !shutdown_signal.load(Ordering::Relaxed) {
-        // Add new results to report
+    while !shutdown_signal.load(Ordering::Relaxed) && result_count < test_count {
         for result in result_rx.try_iter() {
-            report.insert(result);
+            tester.report(result);
+            result_count += 1;
         }
 
         print!(
             "\r{} {}",
-            format!("Running ({}x)..", thread_count)
-                .bright_magenta()
-                .bold(),
-            report.summary().blue()
+            format!(
+                "Running {}/{} tests ({}x)..",
+                result_count, test_count, thread_count
+            )
+            .bright_magenta(),
+            tester.summary().blue()
         );
         stdout.flush().unwrap();
 
-        if let Some(run_time) = run_time {
-            if start_time.elapsed() > run_time && !is_stopping {
-                stop_signal.store(true, Ordering::Relaxed);
-                is_stopping = true;
-            }
-        }
         thread::sleep(Duration::from_millis(50));
     }
-    report
+    println!();
+    tester.into_report()
 }
 
 /// Spawns a worker thead controlled by the controller
-fn spawn_worker<T: Controller + Send + Sync + 'static>(
-    mut controller: T,
-    result_sender: Sender<CmdStatus>,
-    stop_signal: Arc<AtomicBool>,
+fn spawn_worker(
+    test_rceiver: Receiver<TestExec>,
+    result_sender: Sender<ExecResult>,
 ) -> JoinHandle<()> {
-    thread::spawn(move || {
-        while !stop_signal.load(Ordering::Relaxed) {
-            if let Some(cmd) = controller.get() {
+    thread::spawn(move || loop {
+        match test_rceiver.recv() {
+            Ok(cmd) => {
                 let result = run_command(cmd);
                 if let Err(e) = result_sender.try_send(result) {
-                    debug!("Failed to send report: {e}")
+                    log::error!("Failed to send test result: {e}")
                 };
-            } else {
-                break;
             }
+            Err(_) => break,
         }
     })
 }
 
 /// Runs the command and optionally writes input to stdin.
-pub fn run_command(options: CmdOptions) -> CmdStatus {
+pub fn run_command(options: TestExec) -> ExecResult {
     let start_time = Instant::now();
     let mut child = Command::new("sh")
         .arg("-c")
@@ -183,21 +141,21 @@ pub fn run_command(options: CmdOptions) -> CmdStatus {
         .spawn()
         .unwrap();
     let mut stdin = child.stdin.take().unwrap();
-    if let Some(input) = &options.input {
-        stdin
-            .write_all(input.as_bytes())
-            .expect("failed to write stdin");
-        stdin.flush().expect("failed to flush stdin");
-    }
-    if let Some(time_limit) = options.time_limit {
+    stdin
+        .write_all(&options.input)
+        .expect("failed to write stdin");
+    stdin.flush().expect("failed to flush stdin");
+    if let Some(time_limit) = options.timeout {
         while let None = child.try_wait().unwrap() {
             if start_time.elapsed() > time_limit {
                 child.kill().unwrap();
-                return CmdStatus::Killed(options.input.clone());
+                return ExecResult::Timeout {
+                    test_id: options.test_id,
+                };
             }
             thread::sleep(Duration::from_millis(50));
         }
     }
     let output = child.wait_with_output().unwrap();
-    CmdStatus::from_output(&output, options.input.clone(), start_time.elapsed())
+    ExecResult::from_output(options.test_id, output, start_time.elapsed())
 }
