@@ -111,8 +111,8 @@ impl Tester {
     pub fn summary(&self) -> String {
         format!(
             "{} / {} / {} finished",
-            format!("{} passed", self.passed).green().bold(),
-            format!("{} failed", self.failed).red().bold(),
+            format!("{} passed", self.passed).green(),
+            format!("{} failed", self.failed).red(),
             self.passed + self.failed
         )
     }

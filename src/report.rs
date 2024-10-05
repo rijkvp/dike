@@ -44,7 +44,7 @@ impl TestReport {
     }
 
     pub fn print_report(&self) {
-        println!("{}", "== TEST SUMMARY ==".bold());
+        println!("{}", "== TEST REPORT ==".bold());
         println!(
             "{: >10} {}/{}",
             "finished:".bold(),
@@ -78,13 +78,16 @@ impl TestReport {
             },
         );
 
+        for result in &self.timed_out {
+            println!("{} {}", "TIMEOUT".bright_yellow().bold(), result.name);
+        }
         for result in &self.failed {
             match result.result_type {
                 ResultType::Pass => continue,
                 ResultType::Signaled => {
                     print_failed(&result);
                     println!(
-                        "runtime error, exit status: {}",
+                        "runtime error, exit status {}",
                         (if let Some(status) = result.status {
                             status.to_string()
                         } else {
@@ -137,10 +140,10 @@ fn print_diff(output: &str, expected: &str) {
         for change in diff.iter_all_changes() {
             match change.tag() {
                 ChangeTag::Delete => {
-                    print!("{} {}", "-".red().bold(), change.dimmed().strikethrough())
+                    print!("{}{}", "-".red(), change.red())
                 }
-                ChangeTag::Insert => print!("{} {}", "+".blue().bold(), change.blue()),
-                ChangeTag::Equal => print!("{} {}", " ", change.green()),
+                ChangeTag::Insert => print!("{}{}", "+".green(), change.green()),
+                ChangeTag::Equal => print!("{}{}", " ", change),
             };
         }
     }

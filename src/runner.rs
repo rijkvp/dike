@@ -96,7 +96,7 @@ pub fn run(mut tester: Tester, thread_count: u64) -> TestReport {
         print!(
             "\r{} {}",
             format!(
-                "Running {}/{} tests ({}x)..",
+                "Running {}/{} tests ({}x) ",
                 result_count, test_count, thread_count
             )
             .bright_magenta()
