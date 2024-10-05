@@ -1,3 +1,4 @@
+use crate::runner::CmdOutput;
 use crate::{loader::TestCase, report::TestReport, runner::ExecResult};
 use owo_colors::OwoColorize;
 use std::collections::HashMap;
@@ -5,34 +6,59 @@ use std::time::Duration;
 
 pub struct Tester {
     testcases: HashMap<usize, TestCase>,
-    command: String,
+    cmd_args: Vec<String>,
     timeout: Option<Duration>,
+    results: Vec<TestResult>,
     timed_out: Vec<usize>,
-    failed: Vec<(usize, TestError)>,
-    passed: Vec<usize>,
+    failed: usize,
+    passed: usize,
 }
 
 pub struct TestExec {
     pub test_id: usize,
-    pub cmd: String,
+    pub cmd_args: Vec<String>,
     pub input: Vec<u8>,
     pub timeout: Option<Duration>,
 }
 
-pub enum TestError {
-    Fail {
-        expected: Vec<u8>,
-        actual: Vec<u8>,
-        stderr: Vec<u8>,
-        duration: Duration,
-    },
-    Killed {
-        status: i32,
-    },
+pub struct TestResult {
+    pub result_type: ResultType,
+    pub testcase: TestCase,
+    pub stdout: Vec<u8>,
+    pub stderr: Vec<u8>,
+    pub status: Option<i32>,
+    pub duration: Duration,
+}
+
+pub enum ResultType {
+    Pass,
+    Signaled,
+    WrongOutput,
+}
+
+impl TestResult {
+    fn from_output(testcase: TestCase, cmd_output: CmdOutput) -> Self {
+        Self {
+            result_type: if cmd_output.status == Some(0) {
+                if cmd_output.stdout == testcase.output {
+                    ResultType::Pass
+                } else {
+                    ResultType::WrongOutput
+                }
+            } else {
+                ResultType::Signaled
+            },
+            testcase,
+            stdout: cmd_output.stdout,
+            stderr: cmd_output.stderr,
+            duration: cmd_output.duration,
+            status: cmd_output.status,
+        }
+    }
 }
 
 impl Tester {
-    pub fn new(testcases: Vec<TestCase>, command: String, timeout: Option<Duration>) -> Self {
+    pub fn new(testcases: Vec<TestCase>, cmd_args: Vec<String>, timeout: Option<Duration>) -> Self {
         let testcases: HashMap<usize, TestCase> = testcases
             .into_iter()
             .enumerate()
@@ -40,11 +66,12 @@ impl Tester {
             .collect();
         Self {
             testcases,
-            command,
+            cmd_args,
             timeout,
+            results: Vec::new(),
             timed_out: Vec::new(),
-            failed: Vec::new(),
-            passed: Vec::new(),
+            failed: 0,
+            passed: 0,
         }
     }
 
@@ -53,7 +80,7 @@ impl Tester {
             .iter()
             .map(|(id, test)| TestExec {
                 test_id: *id,
-                cmd: self.command.clone(),
+                cmd_args: self.cmd_args.clone(),
                 input: test.input.clone(),
                 timeout: self.timeout,
             })
@@ -66,29 +93,17 @@ impl Tester {
                 self.timed_out.push(test_id);
             }
             ExecResult::Terminated { test_id, output } => {
-                if output.status != Some(0) {
-                    self.failed.push((
-                        test_id,
-                        TestError::Killed {
-                            status: output.status.unwrap(),
-                        },
-                    ));
-                } else {
-                    let expected_output = &self.testcases[&test_id].output;
-                    if output.stdout == *expected_output {
-                        self.passed.push(test_id);
-                    } else {
-                        self.failed.push((
-                            test_id,
-                            TestError::Fail {
-                                expected: expected_output.to_vec(),
-                                actual: output.stdout,
-                                stderr: output.stderr,
-                                duration: output.duration,
-                            },
-                        ));
+                let testcase = self.testcases.remove(&test_id).unwrap();
+                let result = TestResult::from_output(testcase, output);
+                match result.result_type {
+                    ResultType::Pass => {
+                        self.passed += 1;
+                    }
+                    ResultType::Signaled | ResultType::WrongOutput { .. } => {
+                        self.failed += 1;
                     }
                 }
+                self.results.push(result);
             }
         }
     }
@@ -96,9 +111,9 @@ impl Tester {
     pub fn summary(&self) -> String {
         format!(
             "{} / {} / {} finished",
-            format!("{} passed", self.passed.len()).green().bold(),
-            format!("{} failed", self.failed.len()).red().bold(),
-            self.passed.len() + self.failed.len()
+            format!("{} passed", self.passed).green().bold(),
+            format!("{} failed", self.failed).red().bold(),
+            self.passed + self.failed
         )
     }
 
@@ -107,22 +122,12 @@ impl Tester {
     }
 
     pub fn into_report(mut self) -> TestReport {
-        TestReport {
-            timed_out: self
-                .timed_out
+        TestReport::from_results(
+            self.timed_out
                 .into_iter()
-                .map(|idx| self.testcases.remove(&idx).unwrap())
+                .map(|id| self.testcases.remove(&id).unwrap())
                 .collect(),
-            failed: self
-                .failed
-                .into_iter()
-                .map(|(idx, error)| (self.testcases.remove(&idx).unwrap(), error))
-                .collect(),
-            passed: self
-                .passed
-                .into_iter()
-                .map(|idx| self.testcases.remove(&idx).unwrap())
-                .collect(),
-        }
+            self.results,
+        )
     }
 }

@@ -6,4 +6,6 @@ pub enum Error {
     IO(#[from] std::io::Error),
     #[error("Invalid glob pattern: {0}")]
     Glob(#[from] glob::PatternError),
+    #[error("Invalid command: {0}")]
+    ParseCommand(String),
 }

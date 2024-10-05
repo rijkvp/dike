@@ -1,14 +1,38 @@
 use owo_colors::OwoColorize;
 
-use crate::{loader::TestCase, tester::TestError};
+use crate::{
+    loader::TestCase,
+    tester::{ResultType, TestResult},
+};
 
 pub struct TestReport {
-    pub timed_out: Vec<TestCase>,
-    pub failed: Vec<(TestCase, TestError)>,
-    pub passed: Vec<TestCase>,
+    timed_out: Vec<TestCase>,
+    failed: Vec<TestResult>,
+    passed: Vec<TestResult>,
 }
 
 impl TestReport {
+    pub fn from_results(timed_out: Vec<TestCase>, results: Vec<TestResult>) -> Self {
+        let mut failed = Vec::new();
+        let mut passed = Vec::new();
+
+        for result in results {
+            match result.result_type {
+                ResultType::Pass => {
+                    passed.push(result);
+                }
+                ResultType::Signaled | ResultType::WrongOutput => {
+                    failed.push(result);
+                }
+            }
+        }
+
+        Self {
+            timed_out,
+            failed,
+            passed,
+        }
+    }
     fn terminated_count(&self) -> usize {
         self.passed.len() + self.failed.len()
     }
@@ -27,30 +51,39 @@ impl TestReport {
         println!("Passed: {}/{}", self.passed.len(), self.terminated_count());
         println!("Failed: {}/{}", self.failed.len(), self.terminated_count());
 
-        for (test, error) in &self.failed {
-            match error {
-                TestError::Killed { status } => {
-                    println!("Test {} was killed with status {}", test.name, status);
+        for result in &self.failed {
+            match result.result_type {
+                ResultType::Pass => continue,
+                ResultType::Signaled => {
+                    println!(
+                        "Test '{}' failed after {:?}, signaled",
+                        result.testcase.name, result.duration
+                    );
                 }
-                TestError::Fail {
-                    expected,
-                    actual,
-                    stderr,
-                    duration,
-                } => {
+                ResultType::WrongOutput => {
                     println!(
                         "Test '{}' failed after {:?}, expected: {}, got: {}",
-                        test.name,
-                        duration,
-                        String::from_utf8_lossy(expected)
+                        result.testcase.name,
+                        result.duration,
+                        String::from_utf8_lossy(&result.testcase.output)
                             .trim_end_matches('\n')
                             .green(),
-                        String::from_utf8_lossy(actual).trim_end_matches('\n').red()
+                        String::from_utf8_lossy(&result.stdout)
+                            .trim_end_matches('\n')
+                            .red()
                     );
-                    if !stderr.is_empty() {
-                        println!("stderr: {}", String::from_utf8_lossy(stderr));
-                    }
                 }
+            }
+            if let Some(status) = result.status {
+                println!("Exit status: {}", status);
+            } else {
+                println!("Exit status: unknown");
+            }
+            if !result.stderr.is_empty() {
+                println!(
+                    "Standard error: {}",
+                    String::from_utf8_lossy(&result.stderr).trim_end_matches('\n')
+                );
             }
         }
     }

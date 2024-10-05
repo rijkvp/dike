@@ -49,13 +49,15 @@ fn run() -> Result<(), Error> {
 
     let thread_count = args.threads.unwrap_or(processor_count());
     let time_limit = args.timeout.map(Duration::from_secs_f64);
+    let cmd_args = shlex::split(&args.cmd).ok_or_else(|| Error::ParseCommand(args.cmd.clone()))?;
+    log::debug!("Command: {:?}", cmd_args);
 
     let testscases = loader::load_tests(args.inputs)?;
     if testscases.is_empty() {
         log::warn!("No test cases found.");
         return Ok(());
     }
-    let tester = Tester::new(testscases, args.cmd, time_limit);
+    let tester = Tester::new(testscases, cmd_args, time_limit);
     let report = runner::run(tester, thread_count);
     report.print_report();
     Ok(())

@@ -135,9 +135,8 @@ fn spawn_worker(
 /// Runs the command and optionally writes input to stdin.
 pub fn run_command(options: TestExec) -> ExecResult {
     let start_time = Instant::now();
-    let mut child = Command::new("sh")
-        .arg("-c")
-        .arg(options.cmd)
+    let mut child = Command::new(&options.cmd_args[0])
+        .args(&options.cmd_args[1..])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -148,6 +147,7 @@ pub fn run_command(options: TestExec) -> ExecResult {
         .write_all(&options.input)
         .expect("failed to write stdin");
     stdin.flush().expect("failed to flush stdin");
+    drop(stdin); // Close stdin to signal EOF
     if let Some(time_limit) = options.timeout {
         while let None = child.try_wait().unwrap() {
             if start_time.elapsed() > time_limit {
