@@ -16,7 +16,7 @@ fn load_test(path: &Path) -> Result<Option<TestCase>, Error> {
     if path.extension().map(|e| e.to_str()) != Some(Some(OUTPUT_EXT)) {
         let output_path = path.with_extension(OUTPUT_EXT);
         if output_path.exists() {
-            let name = path.file_stem().unwrap().to_str().unwrap().to_string();
+            let name = path.to_string_lossy().to_string();
             let input = fs::read(path)?;
             let output = fs::read(output_path)?;
             return Ok(Some(TestCase {
