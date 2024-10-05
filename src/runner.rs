@@ -83,35 +83,42 @@ pub fn run(mut tester: Tester, thread_count: u64) -> TestReport {
     }
 
     // Main thread prints progress and collects results
-    let mut stdout = stdout();
     let test_count = tester.total_count();
     let mut result_count = 0;
 
-    while !shutdown_signal.load(Ordering::Relaxed) && result_count < test_count {
+    while {
         for result in result_rx.try_iter() {
             tester.report(result);
             result_count += 1;
         }
-
-        print!(
-            "\r{} {}",
-            format!(
-                "Running {}/{} tests ({}x) ",
-                result_count, test_count, thread_count
-            )
-            .bright_magenta()
-            .bold(),
-            tester.summary().blue()
-        );
-        stdout.flush().unwrap();
-
-        thread::sleep(Duration::from_millis(50));
+        print_progress(&tester, result_count, test_count, thread_count);
+        !shutdown_signal.load(Ordering::Relaxed) && result_count < test_count
+    } {
+        thread::sleep(Duration::from_millis(5));
     }
-    println!();
     for result in result_rx.try_iter() {
         tester.report(result);
     }
+    print_progress(&tester, result_count, test_count, thread_count);
+    println!();
     tester.into_report()
+}
+
+fn print_progress(tester: &Tester, result_count: usize, test_count: usize, thread_count: u64) {
+    let mut stdout = stdout();
+    write!(
+        stdout,
+        "\r{} {}",
+        format!(
+            "Running {}/{} tests ({}x) ",
+            result_count, test_count, thread_count
+        )
+        .bright_magenta()
+        .bold(),
+        tester.summary().blue()
+    )
+    .unwrap();
+    stdout.flush().unwrap();
 }
 
 /// Spawns a worker thead controlled by the controller

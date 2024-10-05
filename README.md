@@ -1,7 +1,7 @@
 # dike
 
 dike is a parallel code tester which runs your tests blazingly fast using multithreading.
-`dike` is named after the Greek Goddess of justice Dike or Dice, daughter of Themis, 
+dike is named after the Greek Goddess of justice Dike or Dice, daughter of Themis.
 
 ## Example
 
