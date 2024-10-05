@@ -32,15 +32,24 @@ impl TestReport {
                 TestError::Killed { status } => {
                     println!("Test {} was killed with status {}", test.name, status);
                 }
-                TestError::Fail { expected, actual } => {
+                TestError::Fail {
+                    expected,
+                    actual,
+                    stderr,
+                    duration,
+                } => {
                     println!(
-                        "Test '{}' failed, expected: {}, got: {}",
+                        "Test '{}' failed after {:?}, expected: {}, got: {}",
                         test.name,
+                        duration,
                         String::from_utf8_lossy(expected)
                             .trim_end_matches('\n')
                             .green(),
                         String::from_utf8_lossy(actual).trim_end_matches('\n').red()
                     );
+                    if !stderr.is_empty() {
+                        println!("stderr: {}", String::from_utf8_lossy(stderr));
+                    }
                 }
             }
         }

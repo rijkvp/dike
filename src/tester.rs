@@ -20,8 +20,15 @@ pub struct TestExec {
 }
 
 pub enum TestError {
-    Fail { expected: Vec<u8>, actual: Vec<u8> },
-    Killed { status: i32 },
+    Fail {
+        expected: Vec<u8>,
+        actual: Vec<u8>,
+        stderr: Vec<u8>,
+        duration: Duration,
+    },
+    Killed {
+        status: i32,
+    },
 }
 
 impl Tester {
@@ -76,6 +83,8 @@ impl Tester {
                             TestError::Fail {
                                 expected: expected_output.to_vec(),
                                 actual: output.stdout,
+                                stderr: output.stderr,
+                                duration: output.duration,
                             },
                         ));
                     }

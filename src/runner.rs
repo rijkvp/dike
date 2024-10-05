@@ -69,7 +69,6 @@ pub fn run(mut tester: Tester, thread_count: u64) -> TestReport {
         for test_exec in execs {
             exec_tx.send(test_exec).unwrap();
         }
-        drop(exec_tx);
     });
 
     // Spawn a thread to wait for all workers to finish
@@ -100,7 +99,8 @@ pub fn run(mut tester: Tester, thread_count: u64) -> TestReport {
                 "Running {}/{} tests ({}x)..",
                 result_count, test_count, thread_count
             )
-            .bright_magenta(),
+            .bright_magenta()
+            .bold(),
             tester.summary().blue()
         );
         stdout.flush().unwrap();
@@ -108,6 +108,9 @@ pub fn run(mut tester: Tester, thread_count: u64) -> TestReport {
         thread::sleep(Duration::from_millis(50));
     }
     println!();
+    for result in result_rx.try_iter() {
+        tester.report(result);
+    }
     tester.into_report()
 }
 

@@ -21,7 +21,7 @@ struct Args {
     inputs: String,
     /// Time limit for each run
     #[clap(short = 'l', long)]
-    time_limit: Option<f64>,
+    timeout: Option<f64>,
     /// Sets a custom amount of threads, defaults to number of CPUs
     #[clap(short, long)]
     threads: Option<u64>,
@@ -48,7 +48,7 @@ fn run() -> Result<(), Error> {
     let args = Args::parse();
 
     let thread_count = args.threads.unwrap_or(processor_count());
-    let time_limit = args.time_limit.map(Duration::from_secs_f64);
+    let time_limit = args.timeout.map(Duration::from_secs_f64);
 
     let testscases = loader::load_tests(args.inputs)?;
     if testscases.is_empty() {
