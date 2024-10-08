@@ -43,8 +43,8 @@ impl TestReport {
         self.timed_out.len() + self.terminated_count()
     }
 
-    pub fn print_report(&self) {
-        println!("{}", "== TEST REPORT ==".bold());
+    fn print_summary(&self) {
+        println!("{}", "== TEST SUMMARY ==".bold());
         println!(
             "{: >10} {}/{}",
             "finished:".bold(),
@@ -77,7 +77,9 @@ impl TestReport {
                 format!("{}/{}", failed_count.bright_red(), self.terminated_count())
             },
         );
+    }
 
+    pub fn print_report(&self) {
         for result in &self.timed_out {
             println!("{} {}", "TIMEOUT".bright_yellow().bold(), result.name);
         }
@@ -114,6 +116,7 @@ impl TestReport {
                 }
             }
         }
+        self.print_summary();
     }
 }
 
