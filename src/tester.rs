@@ -40,7 +40,8 @@ impl TestResult {
     fn from_output(testcase: TestCase, cmd_output: CmdOutput) -> Self {
         Self {
             result_type: if cmd_output.status == Some(0) {
-                if cmd_output.stdout == testcase.output {
+                if testcase.output.is_none() || Some(&cmd_output.stdout) == testcase.output.as_ref()
+                {
                     ResultType::Pass
                 } else {
                     ResultType::WrongOutput

@@ -102,7 +102,8 @@ impl TestReport {
                     print_failed(&result);
                     println!("wrong output");
                     let output = String::from_utf8_lossy(&result.stdout);
-                    let expected = String::from_utf8_lossy(&result.testcase.output);
+                    let expected =
+                        String::from_utf8_lossy(result.testcase.output.as_ref().unwrap());
                     print_diff(&output, &expected);
                 }
             }
